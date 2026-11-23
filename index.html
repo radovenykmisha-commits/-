@@ -984,14 +984,18 @@ function startMusic(){const p=TRACK.play();musicOn=true;if(p&&p.catch)p.catch(()
 function stopMusic(){TRACK.pause();musicOn=false;setSndIcon();}
 function sfx(f){if(!musicOn||!ac||!master)return;blip(f,ac.currentTime,.08,"square",.045);}
 /* гучність треку через Web Audio (на iPhone звичайна volume не працює) */
-let trackGain=null;
+let trackGain=null,volTimer=null;
+/* чи браузер дозволяє міняти гучність (iPhone не дозволяє) */
+const VOL_OK=(()=>{try{const a=new Audio();a.volume=.5;return Math.abs(a.volume-.5)<.01;}catch(e){return false;}})();
 function ensureTrackGraph(){
-  if(trackGain||location.protocol==="file:")return;
+  return; /* Web Audio глушив трек на сайті, тому лишаємо звичайну гучність */
+  if(trackGain)return;
   try{ac=ac||new (window.AudioContext||window.webkitAudioContext)();const src=ac.createMediaElementSource(TRACK);trackGain=ac.createGain();src.connect(trackGain).connect(ac.destination);TRACK.volume=1;}catch(e){trackGain=null;}
 }
 function setTrackVol(v,ramp){
   if(trackGain&&ac){const t=ac.currentTime;trackGain.gain.cancelScheduledValues(t);trackGain.gain.setValueAtTime(trackGain.gain.value,t);trackGain.gain.linearRampToValueAtTime(v,t+(ramp||.05));}
-  else TRACK.volume=Math.min(1,v);
+  else{clearInterval(volTimer);const from=TRACK.volume,to=Math.min(1,v),dur=(ramp||.05)*1000,t0=performance.now();
+    volTimer=setInterval(()=>{const k=Math.min(1,(performance.now()-t0)/dur);try{TRACK.volume=from+(to-from)*k;}catch(e){}if(k>=1)clearInterval(volTimer);},40);}
 }
 const BG_VOL=.22, FULL_VOL=.9;
 
@@ -1004,7 +1008,7 @@ $("yes").onclick=()=>{
   const v=$("intro-video");let done=false,watchdog=null;
   let sync=null;
   const toOffice=()=>{if(done)return;done=true;clearTimeout(watchdog);clearInterval(sync);try{v.pause();}catch(e){}
-    if(!musicOn)startMusic();
+    if(!musicOn){try{TRACK.currentTime=CLIP_OFFSET+(v.currentTime||0);}catch(e){}startMusic();}
     setTrackVol(FULL_VOL,1.6);
     dissolve(()=>{jumpTo(0);});};
   v.onended=toOffice;v.onerror=toOffice;
@@ -1012,7 +1016,8 @@ $("yes").onclick=()=>{
   setTrackVol(BG_VOL,.01);
   v.muted=false;v.volume=1;
   try{v.currentTime=0;TRACK.currentTime=CLIP_OFFSET;}catch(e){}
-  startMusic();
+  /* на iPhone гучність не міняється, тому трек вмикаємо вже після відео, щоб не заглушив слова */
+  if(VOL_OK)startMusic();else{const q=TRACK.play();if(q&&q.then)q.then(()=>TRACK.pause()).catch(()=>{});}
   const p=v.play();
   // якщо браузер не дав звук відео: показуємо без звуку, а трек на повну
   if(p&&p.catch)p.catch(()=>{v.muted=true;setTrackVol(FULL_VOL,.3);v.play().catch(toOffice);});
